@@ -1,0 +1,6 @@
+{
+  "name": "Стартап А1 - Russian Audio Lab",
+  "description": "Ascolta, impara e riproduci gli esercizi del libro di russo Стартап А1. Riproduzione vocale, trascrizione fonetica e analisi intelligente delle pagine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

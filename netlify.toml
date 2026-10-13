@@ -1,0 +1,39 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Reindirizzamento degli endpoint API verso le Netlify Functions
+[[redirects]]
+  from = "/api/analyze-page"
+  to = "/.netlify/functions/analyze-page"
+  status = 200
+
+[[redirects]]
+  from = "/api/tts"
+  to = "/.netlify/functions/tts"
+  status = 200
+
+[[redirects]]
+  from = "/api/ask-tutor"
+  to = "/.netlify/functions/ask-tutor"
+  status = 200
+
+# Reindirizzamento SPA per React (evita errori 404 al refresh)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Intestazioni di sicurezza e ottimizzazione cache
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
