@@ -28,6 +28,95 @@ import { VoiceRecorderModal } from './components/VoiceRecorderModal';
 import { TutorDrawer } from './components/TutorDrawer';
 import { PdfTextbookViewer } from './components/PdfTextbookViewer';
 
+function sanitizeLessonPage(page: any): LessonPage {
+  if (!page || typeof page !== 'object') return LESSON_1_DATA;
+  const rawExercises = Array.isArray(page.exercises) ? page.exercises : [];
+  const rawVocab = Array.isArray(page.vocabulary)
+    ? page.vocabulary
+    : Array.isArray(page.vocabularies)
+    ? page.vocabularies
+    : [];
+
+  return {
+    ...page,
+    id: page.id || `lesson-${Date.now()}`,
+    lessonTitle: page.lessonTitle || 'Lezione di Russo',
+    pageNumber: page.pageNumber || '10',
+    bookTitle: page.bookTitle || 'Стартап А1',
+    overviewIt: page.overviewIt || '',
+    exercises: rawExercises.map((ex: any, idx: number) => {
+      if (!ex || typeof ex !== 'object') {
+        return {
+          id: `ex-${idx}`,
+          number: String(idx + 1),
+          titleRu: '',
+          titleIt: '',
+          type: 'text',
+          audioItems: [],
+        };
+      }
+      const rawAudio = Array.isArray(ex.audioItems)
+        ? ex.audioItems
+        : Array.isArray(ex.items)
+        ? ex.items
+        : [];
+      return {
+        ...ex,
+        id: ex.id || `ex-${idx}`,
+        number: String(ex.number ?? idx + 1),
+        titleRu: ex.titleRu || '',
+        titleIt: ex.titleIt || '',
+        descriptionIt: ex.descriptionIt || '',
+        exerciseNotesIt: ex.exerciseNotesIt || '',
+        audioItems: rawAudio.map((it: any, itIdx: number) => {
+          if (!it || typeof it !== 'object') {
+            const strVal = String(it || '');
+            return {
+              id: `item-${idx}-${itIdx}`,
+              textRu: strVal,
+              label: strVal,
+              ipa: '',
+              italianPhonetic: '',
+              audioTextToSpeak: strVal,
+              explanationIt: '',
+            };
+          }
+          return {
+            ...it,
+            id: it.id || `item-${idx}-${itIdx}`,
+            textRu: it.textRu || it.text || '',
+            label: it.label || it.textRu || it.text || '',
+            ipa: it.ipa || '',
+            italianPhonetic: it.italianPhonetic || '',
+            audioTextToSpeak: it.audioTextToSpeak || it.textRu || it.text || '',
+            explanationIt: it.explanationIt || '',
+          };
+        }),
+      };
+    }),
+    vocabulary: rawVocab.map((v: any, vIdx: number) => {
+      if (!v || typeof v !== 'object') {
+        const strVal = String(v || '');
+        return {
+          wordRu: strVal,
+          ipa: '',
+          translationIt: '',
+          audioTextToSpeak: strVal,
+          notesIt: '',
+        };
+      }
+      return {
+        ...v,
+        wordRu: v.wordRu || v.word || '',
+        ipa: v.ipa || '',
+        translationIt: v.translationIt || v.translation || '',
+        audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
+        notesIt: v.notesIt || '',
+      };
+    }),
+  };
+}
+
 export default function App() {
   const [currentLesson, setCurrentLesson] = useState<LessonPage>(LESSON_1_DATA);
   const [activeTab, setActiveTab] = useState<'pdf' | 'exercises' | 'cursive' | 'quiz' | 'vocabulary'>('pdf');
@@ -47,11 +136,11 @@ export default function App() {
   const loadSavedGeneratedPages = async () => {
     try {
       const stored = await dbService.getAllGeneratedPages();
-      if (stored.length > 0) {
-        // Merge with LESSON_1_DATA ensuring no duplicates
+      if (stored && stored.length > 0) {
+        const cleaned = stored.map(sanitizeLessonPage);
         const merged = [
           LESSON_1_DATA,
-          ...stored.filter((p) => p.id !== LESSON_1_DATA.id && p.pageNumber !== '10 - 11'),
+          ...cleaned.filter((p) => p.id !== LESSON_1_DATA.id && p.pageNumber !== '10 - 11'),
         ];
         setGeneratedPages(merged);
       }
@@ -61,18 +150,20 @@ export default function App() {
   };
 
   const handlePageGenerated = (newPage: LessonPage) => {
+    const sanitized = sanitizeLessonPage(newPage);
     setGeneratedPages((prev) => {
-      const filtered = prev.filter((p) => p.id !== newPage.id);
-      return [newPage, ...filtered];
+      const filtered = prev.filter((p) => p.id !== sanitized.id);
+      return [sanitized, ...filtered];
     });
-    setCurrentLesson(newPage);
+    setCurrentLesson(sanitized);
     if (!splitViewActive) {
       setActiveTab('exercises');
     }
   };
 
   const handleSelectGeneratedPage = (page: LessonPage) => {
-    setCurrentLesson(page);
+    const sanitized = sanitizeLessonPage(page);
+    setCurrentLesson(sanitized);
     if (!splitViewActive) {
       setActiveTab('exercises');
     }
@@ -83,14 +174,15 @@ export default function App() {
     audioService.playText(word, id, { rate: 0.85 });
   };
 
-  // Find exercises by number/type
-  const ex1 = currentLesson.exercises.find((e) => e.number === '1');
-  const ex2 = currentLesson.exercises.find((e) => e.number === '2');
-  const ex3 = currentLesson.exercises.find((e) => e.number === '3');
-  const ex4 = currentLesson.exercises.find((e) => e.number === '4');
-  const poster = currentLesson.exercises.find((e) => e.number === 'Poster');
-  const otherExercises = currentLesson.exercises.filter(
-    (e) => !['1', '2', '3', '4', 'Poster'].includes(e.number)
+  // Safe exercise selectors
+  const lessonExercises = Array.isArray(currentLesson?.exercises) ? currentLesson.exercises : [];
+  const ex1 = lessonExercises.find((e) => e && String(e.number) === '1');
+  const ex2 = lessonExercises.find((e) => e && String(e.number) === '2');
+  const ex3 = lessonExercises.find((e) => e && String(e.number) === '3');
+  const ex4 = lessonExercises.find((e) => e && String(e.number) === '4');
+  const poster = lessonExercises.find((e) => e && String(e.number) === 'Poster');
+  const otherExercises = lessonExercises.filter(
+    (e) => e && !['1', '2', '3', '4', 'Poster'].includes(String(e.number))
   );
 
   return (
@@ -203,7 +295,7 @@ export default function App() {
             <span>Palestra d'Ascolto (Quiz)</span>
           </button>
 
-          {currentLesson.vocabulary && currentLesson.vocabulary.length > 0 && (
+          {Array.isArray(currentLesson?.vocabulary) && currentLesson.vocabulary.length > 0 && (
             <button
               onClick={() => setActiveTab('vocabulary')}
               className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
@@ -259,11 +351,11 @@ export default function App() {
                     <h4 className="font-bold text-slate-900 text-sm mb-1">{poster.titleRu}</h4>
                     <p className="text-xs text-slate-500 mb-3">{poster.descriptionIt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {poster.audioItems.map((item) => (
+                      {(Array.isArray(poster?.audioItems) ? poster.audioItems : []).map((item) => (
                         <button
                           key={item.id}
                           onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                          className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-colors"
+                          className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-colors cursor-pointer"
                         >
                           <div className="font-bold text-base text-slate-900">{item.textRu}</div>
                           <div className="text-xs text-slate-500 font-mono">{item.ipa}</div>
@@ -279,7 +371,7 @@ export default function App() {
 
                 {ex1 && (
                   <VowelsTableCard
-                    items={ex1.audioItems}
+                    items={ex1.audioItems || []}
                     title={ex1.titleRu}
                     notes={ex1.exerciseNotesIt}
                   />
@@ -287,7 +379,7 @@ export default function App() {
 
                 {ex2 && (
                   <CursiveCanvas
-                    items={ex2.audioItems}
+                    items={ex2.audioItems || []}
                     title={ex2.titleRu}
                     notes={ex2.exerciseNotesIt}
                   />
@@ -295,7 +387,7 @@ export default function App() {
 
                 {ex3 && (
                   <DiagramReader
-                    items={ex3.audioItems}
+                    items={ex3.audioItems || []}
                     title={ex3.titleRu}
                     notes={ex3.exerciseNotesIt}
                   />
@@ -303,7 +395,7 @@ export default function App() {
 
                 {ex4 && (
                   <VowelsTableCard
-                    items={ex4.audioItems}
+                    items={ex4.audioItems || []}
                     title={ex4.titleRu}
                     notes={ex4.exerciseNotesIt}
                   />
@@ -314,7 +406,7 @@ export default function App() {
                     <h4 className="font-bold text-slate-900 text-sm mb-1">{ex.titleRu}</h4>
                     <p className="text-xs text-slate-500 mb-3">{ex.descriptionIt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {ex.audioItems.map((item) => (
+                      {(Array.isArray(ex?.audioItems) ? ex.audioItems : []).map((item) => (
                         <div key={item.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
                           <div>
                             <div className="font-bold text-sm text-slate-900">{item.textRu}</div>
@@ -322,7 +414,7 @@ export default function App() {
                           </div>
                           <button
                             onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                            className="p-2 rounded-lg bg-slate-900 text-white"
+                            className="p-2 rounded-lg bg-slate-900 text-white cursor-pointer"
                           >
                             <Volume2 className="w-3.5 h-3.5" />
                           </button>
@@ -395,7 +487,7 @@ export default function App() {
                       <p className="text-xs text-slate-600 mb-4">{poster.descriptionIt}</p>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {poster.audioItems.map((item) => (
+                        {(Array.isArray(poster?.audioItems) ? poster.audioItems : []).map((item) => (
                           <div
                             key={item.id}
                             className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between"
@@ -429,7 +521,7 @@ export default function App() {
                 {/* Exercise 1: 🎧 1. Слушайте, повторяйте, читайте (А, О, У) */}
                 {ex1 && (
                   <VowelsTableCard
-                    items={ex1.audioItems}
+                    items={ex1.audioItems || []}
                     title={ex1.titleRu}
                     notes={ex1.exerciseNotesIt}
                   />
@@ -438,7 +530,7 @@ export default function App() {
                 {/* Exercise 2: ✍️ 2. Пишите (Preview & Quick Audio for letter pairs) */}
                 {ex2 && (
                   <CursiveCanvas
-                    items={ex2.audioItems}
+                    items={ex2.audioItems || []}
                     title={ex2.titleRu}
                     notes={ex2.exerciseNotesIt}
                   />
@@ -447,7 +539,7 @@ export default function App() {
                 {/* Exercise 3: 💼 3. Читайте (Interactive diagram from the book) */}
                 {ex3 && (
                   <DiagramReader
-                    items={ex3.audioItems}
+                    items={ex3.audioItems || []}
                     title={ex3.titleRu}
                     notes={ex3.exerciseNotesIt}
                   />
@@ -456,7 +548,7 @@ export default function App() {
                 {/* Exercise 4: 🎧 4. Слушайте, повторяйте, читайте (И, Э, Ы) */}
                 {ex4 && (
                   <VowelsTableCard
-                    items={ex4.audioItems}
+                    items={ex4.audioItems || []}
                     title={ex4.titleRu}
                     notes={ex4.exerciseNotesIt}
                   />
@@ -468,7 +560,7 @@ export default function App() {
                     <h4 className="font-bold text-slate-900 text-base mb-1">{ex.titleRu}</h4>
                     <p className="text-xs text-slate-500 mb-4">{ex.descriptionIt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {ex.audioItems.map((item) => (
+                      {(Array.isArray(ex?.audioItems) ? ex.audioItems : []).map((item) => (
                         <div key={item.id} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between">
                           <div>
                             <div className="font-bold text-slate-900 text-base">{item.textRu}</div>
@@ -490,11 +582,11 @@ export default function App() {
             )}
 
             {/* Tab: Full Screen Cursive Practice */}
-            {activeTab === 'cursive' && ex2 && (
+            {activeTab === 'cursive' && (
               <div>
                 <CursiveCanvas
-                  items={ex2.audioItems}
-                  title={ex2.titleRu}
+                  items={ex2?.audioItems || []}
+                  title={ex2?.titleRu || '2. Пишите (Corsivo russo)'}
                   notes="Suggerimento didattico: la scrittura corsiva russa è essenziale fin dal livello A1 perché la maggior parte degli appunti, dei compiti e della corrispondenza in Russia viene redatta a mano in corsivo!"
                 />
               </div>
@@ -508,7 +600,7 @@ export default function App() {
             )}
 
             {/* Tab: Vocabulary of Lesson 1 */}
-            {activeTab === 'vocabulary' && currentLesson.vocabulary && (
+            {activeTab === 'vocabulary' && Array.isArray(currentLesson?.vocabulary) && currentLesson.vocabulary.length > 0 && (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-6">
                 <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
                   <div>
@@ -524,7 +616,7 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {currentLesson.vocabulary.map((vocab, idx) => {
+                  {(currentLesson.vocabulary || []).map((vocab, idx) => {
                     const isSelected = selectedWordAudio === `vocab-${idx}`;
                     return (
                       <div

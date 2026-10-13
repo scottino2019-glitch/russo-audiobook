@@ -4,12 +4,12 @@ import { AudioItem } from '../types/lesson';
 import { audioService } from '../services/audioService';
 
 interface DiagramReaderProps {
-  items: AudioItem[];
+  items?: AudioItem[];
   title?: string;
   notes?: string;
 }
 
-export const DiagramReader: React.FC<DiagramReaderProps> = ({ items, title, notes }) => {
+export const DiagramReader: React.FC<DiagramReaderProps> = ({ items = [], title, notes }) => {
   const [activePathId, setActivePathId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export const DiagramReader: React.FC<DiagramReaderProps> = ({ items, title, note
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            {items.map((item) => {
+            {(Array.isArray(items) ? items : []).map((item) => {
               const isPlaying = activePathId === item.id;
               return (
                 <button

@@ -25,20 +25,20 @@ import { LessonPage } from '../types/lesson';
 
 interface PdfTextbookViewerProps {
   onPageGenerated: (lessonPage: LessonPage) => void;
-  generatedPages: LessonPage[];
+  generatedPages?: LessonPage[];
   onSelectGeneratedPage: (lessonPage: LessonPage) => void;
-  splitViewActive: boolean;
-  onToggleSplitView: () => void;
+  splitViewActive?: boolean;
+  onToggleSplitView?: () => void;
 }
 
 const STORAGE_ACTIVE_BOOK_KEY = 'startup_active_book_id';
 
 export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
   onPageGenerated,
-  generatedPages,
+  generatedPages = [],
   onSelectGeneratedPage,
-  splitViewActive,
-  onToggleSplitView,
+  splitViewActive = false,
+  onToggleSplitView = () => {},
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -55,9 +55,11 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isBookshelfOpen, setIsBookshelfOpen] = useState<boolean>(false);
 
+  const safeGeneratedPages = Array.isArray(generatedPages) ? generatedPages : [];
+
   // Check if current page is already processed
-  const currentGenerated = generatedPages.find(
-    (p) => String(p.pageNumber).trim() === String(currentPage)
+  const currentGenerated = safeGeneratedPages.find(
+    (p) => p && String(p.pageNumber).trim() === String(currentPage)
   );
 
   // Load all stored books on mount
@@ -227,7 +229,9 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
         throw new Error(errJson.error || 'Errore durante l\'elaborazione della pagina');
       }
 
-      const parsed: LessonPage = await response.json();
+      const parsed: any = await response.json();
+      const rawExercises = Array.isArray(parsed?.exercises) ? parsed.exercises : [];
+      const rawVocab = Array.isArray(parsed?.vocabulary) ? parsed.vocabulary : [];
       const finalLesson: LessonPage = {
         ...parsed,
         id: `${activeBook.id}-p${currentPage}-${Date.now()}`,
@@ -235,6 +239,33 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
         bookTitle: activeBook.name,
         imageUrl: base64Image,
         isCustomUploaded: true,
+        exercises: rawExercises.map((ex: any, idx: number) => ({
+          ...ex,
+          id: ex?.id || `ex-${idx}`,
+          number: String(ex?.number ?? idx + 1),
+          titleRu: ex?.titleRu || '',
+          titleIt: ex?.titleIt || '',
+          descriptionIt: ex?.descriptionIt || '',
+          exerciseNotesIt: ex?.exerciseNotesIt || '',
+          audioItems: (Array.isArray(ex?.audioItems) ? ex.audioItems : Array.isArray(ex?.items) ? ex.items : []).map((it: any, itIdx: number) => ({
+            ...it,
+            id: it?.id || `item-${idx}-${itIdx}`,
+            textRu: it?.textRu || it?.text || '',
+            label: it?.label || it?.textRu || it?.text || '',
+            ipa: it?.ipa || '',
+            italianPhonetic: it?.italianPhonetic || '',
+            audioTextToSpeak: it?.audioTextToSpeak || it?.textRu || it?.text || '',
+            explanationIt: it?.explanationIt || '',
+          })),
+        })),
+        vocabulary: rawVocab.map((v: any) => ({
+          ...v,
+          wordRu: v?.wordRu || v?.word || '',
+          ipa: v?.ipa || '',
+          translationIt: v?.translationIt || v?.translation || '',
+          audioTextToSpeak: v?.audioTextToSpeak || v?.wordRu || v?.word || '',
+          notesIt: v?.notesIt || '',
+        })),
       };
 
       await dbService.saveGeneratedPage(finalLesson);
@@ -369,8 +400,8 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
                 </div>
 
                 <div className="space-y-2 max-h-64 overflow-y-auto mb-3">
-                  {allBooks.map((b) => {
-                    const isCurrent = b.id === activeBook.id;
+                  {(Array.isArray(allBooks) ? allBooks : []).map((b) => {
+                    const isCurrent = activeBook ? b.id === activeBook.id : false;
                     return (
                       <div
                         key={b.id}
@@ -648,18 +679,18 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
       </div>
 
       {/* Library of Generated Pages for this Book */}
-      {generatedPages.length > 0 && (
+      {safeGeneratedPages.length > 0 && (
         <div className="bg-white p-4 border-t border-slate-200">
           <div className="flex items-center justify-between mb-2">
             <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <Bookmark className="w-3.5 h-3.5 text-amber-500" />
-              <span>Pagine elaborate e salvate ({generatedPages.length}):</span>
+              <span>Pagine elaborate e salvate ({safeGeneratedPages.length}):</span>
             </h5>
             <span className="text-[11px] text-slate-400">Audio sempre accessibile anche offline</span>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {generatedPages.map((genPage) => (
+            {safeGeneratedPages.map((genPage) => (
               <button
                 key={genPage.id}
                 onClick={() => {

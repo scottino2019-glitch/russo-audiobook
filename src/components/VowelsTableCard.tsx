@@ -4,14 +4,20 @@ import { AudioItem } from '../types/lesson';
 import { audioService } from '../services/audioService';
 
 interface VowelsTableCardProps {
-  items: AudioItem[];
+  items?: AudioItem[];
   title?: string;
   notes?: string;
 }
 
-export const VowelsTableCard: React.FC<VowelsTableCardProps> = ({ items, title, notes }) => {
+export const VowelsTableCard: React.FC<VowelsTableCardProps> = ({ items = [], title, notes }) => {
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<AudioItem | null>(items[0] || null);
+  const [selectedItem, setSelectedItem] = useState<AudioItem | null>(items?.[0] || null);
+
+  useEffect(() => {
+    if (!selectedItem && items && items.length > 0) {
+      setSelectedItem(items[0]);
+    }
+  }, [items]);
 
   useEffect(() => {
     const unsub = audioService.subscribe((state) => {
@@ -58,7 +64,7 @@ export const VowelsTableCard: React.FC<VowelsTableCardProps> = ({ items, title, 
       {/* Grid of Vowels Cards (matching the book's table) */}
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          {items.map((item) => {
+          {(Array.isArray(items) ? items : []).map((item) => {
             const isPlayingThis = activeAudioId === item.id;
             const isSelected = selectedItem?.id === item.id;
 

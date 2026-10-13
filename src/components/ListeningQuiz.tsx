@@ -172,7 +172,7 @@ export const ListeningQuiz: React.FC = () => {
 
             {/* Multiple Choice Options */}
             <div className="grid grid-cols-2 gap-3 mb-6">
-              {currentQuestion.options.map((option) => {
+              {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((option) => {
                 const isSelected = selectedOption === option;
                 const isCorrect = option === currentQuestion.correctAnswer;
 

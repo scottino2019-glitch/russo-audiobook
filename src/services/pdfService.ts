@@ -124,7 +124,7 @@ class PdfService {
     let textContent = '';
     try {
       const text = await page.getTextContent();
-      textContent = text.items.map((item: any) => item.str).join(' ');
+      textContent = (Array.isArray(text?.items) ? text.items : []).map((item: any) => item?.str || '').join(' ');
     } catch (e) {
       console.warn('Text extraction fallback:', e);
     }

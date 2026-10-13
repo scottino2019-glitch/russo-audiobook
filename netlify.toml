@@ -47,3 +47,23 @@
   for = "/assets/*.mjs"
   [headers.values]
     Content-Type = "text/javascript"
+
+[[headers]]
+  for = "/pdfjs/build/*.mjs"
+  [headers.values]
+    Content-Type = "text/javascript"
+
+[[headers]]
+  for = "/pdfjs/wasm/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+
+[[headers]]
+  for = "/pdfjs/wasm/*.js"
+  [headers.values]
+    Content-Type = "text/javascript"
+
+[[headers]]
+  for = "/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"

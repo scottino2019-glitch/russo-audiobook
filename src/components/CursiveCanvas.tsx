@@ -14,7 +14,7 @@ import { AudioItem } from '../types/lesson';
 import { audioService } from '../services/audioService';
 
 interface CursiveCanvasProps {
-  items: AudioItem[];
+  items?: AudioItem[];
   title?: string;
   notes?: string;
 }
@@ -52,7 +52,7 @@ interface Stroke {
   width: number;
 }
 
-export const CursiveCanvas: React.FC<CursiveCanvasProps> = ({ items, title, notes }) => {
+export const CursiveCanvas: React.FC<CursiveCanvasProps> = ({ items = [], title, notes }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -540,7 +540,7 @@ export const CursiveCanvas: React.FC<CursiveCanvasProps> = ({ items, title, note
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-            {items.map((item) => {
+            {(Array.isArray(items) ? items : []).map((item) => {
               const isPlaying = activeAudioId === item.id;
               return (
                 <div
