@@ -1,8 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure worker URL
+// Configure worker URL from local static build
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/build/pdf.worker.min.mjs';
 }
 
 class PdfService {
@@ -15,6 +15,10 @@ class PdfService {
       data: new Uint8Array(arrayBuffer),
       useWorkerFetch: false,
       useSystemFonts: true,
+      wasmUrl: '/pdfjs/wasm/',
+      cMapUrl: '/pdfjs/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
     });
 
     this.currentPdfDoc = await loadingTask.promise;
@@ -30,6 +34,10 @@ class PdfService {
       data: new Uint8Array(bufferCopy),
       useWorkerFetch: false,
       useSystemFonts: true,
+      wasmUrl: '/pdfjs/wasm/',
+      cMapUrl: '/pdfjs/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
     });
 
     this.currentPdfDoc = await loadingTask.promise;

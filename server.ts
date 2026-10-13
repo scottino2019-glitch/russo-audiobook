@@ -15,6 +15,9 @@ const port = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 
+// Serve pdfjs wasm, cmaps, and worker assets locally
+app.use('/pdfjs', express.static(path.resolve(__dirname, 'public/pdfjs')));
+
 // Helper to convert raw PCM (24kHz, 16-bit, mono) into valid WAV format
 function pcmToWav(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
   const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
@@ -45,6 +48,28 @@ function getAIClient() {
     return null;
   }
   return new GoogleGenAI({ apiKey });
+}
+
+// Resilient content generator that falls back across flash models if 503 high demand occurs
+async function generateContentWithFallback(ai: GoogleGenAI, contents: any, config: any) {
+  const models = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config,
+      });
+      return response;
+    } catch (err: any) {
+      console.warn(`Model ${model} request returned:`, err?.status || err?.message || err);
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+  }
+  throw lastError;
 }
 
 // 1. Endpoint: Analyze uploaded textbook photo / page
@@ -128,25 +153,24 @@ Rispondi ESCLUSIVAMENTE in formato JSON valido con questa struttura esatta:
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [
-        {
-          role: 'user',
-          parts,
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+    const response = await generateContentWithFallback(
+      ai,
+      [{ role: 'user', parts }],
+      { responseMimeType: 'application/json' }
+    );
 
     const responseText = response.text || '{}';
     const parsed = JSON.parse(responseText);
     res.json(parsed);
   } catch (error: any) {
     console.error('Error analyzing page:', error);
-    res.status(500).json({ error: error.message || 'Errore durante l\'analisi della pagina' });
+    const isOverloaded = error?.status === 503 || error?.message?.includes('high demand') || error?.message?.includes('UNAVAILABLE');
+    res.status(isOverloaded ? 503 : 500).json({
+      error: isOverloaded
+        ? 'I server AI stanno riscontrando un picco temporaneo di richieste. Riprova tra pochi istanti.'
+        : error.message || 'Errore durante l\'analisi della pagina',
+      isHighDemand: isOverloaded,
+    });
   }
 });
 

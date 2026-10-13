@@ -67,20 +67,44 @@ Trascrivi fedelmente e struttura TUTTI gli esercizi in formato JSON valido:
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [{ role: 'user', parts }],
-      config: { responseMimeType: 'application/json' },
-    });
+    const models = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    let lastError: any = null;
+    let responseText = '{}';
 
-    return new Response(response.text || '{}', {
+    for (const model of models) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts }],
+          config: { responseMimeType: 'application/json' },
+        });
+        responseText = response.text || '{}';
+        lastError = null;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        await new Promise((res) => setTimeout(res, 800));
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    return new Response(responseText, {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
+    const isOverloaded = error?.status === 503 || error?.message?.includes('high demand') || error?.message?.includes('UNAVAILABLE');
     return new Response(
-      JSON.stringify({ error: error.message || 'Errore analisi pagina' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({
+        error: isOverloaded
+          ? 'I server AI stanno riscontrando un picco temporaneo di richieste. Riprova tra pochi istanti.'
+          : error.message || 'Errore analisi pagina',
+        isHighDemand: isOverloaded,
+      }),
+      { status: isOverloaded ? 503 : 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 };

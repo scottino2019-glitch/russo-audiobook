@@ -194,10 +194,14 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
     }
   };
 
-  const handleProcessCurrentPage = async () => {
+  const handleProcessCurrentPage = async (attempt = 1) => {
     if (!pdfService.isLoaded() || !activeBook) return;
     setIsProcessingPage(true);
-    setStatusMessage(`Elaborazione con IA di Pagina ${currentPage}...`);
+    setStatusMessage(
+      attempt > 1
+        ? `Nuovo tentativo (${attempt}/3) per Pagina ${currentPage}...`
+        : `Elaborazione con IA di Pagina ${currentPage}...`
+    );
 
     try {
       const { base64Image, textContent } = await pdfService.renderPageToBase64(currentPage, 1.6);
@@ -214,6 +218,12 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
+        // If 503 high demand or network spike, retry automatically after 2s
+        if ((response.status === 503 || errJson.isHighDemand) && attempt < 3) {
+          setStatusMessage(`Server occupati. Nuovo tentativo automatico (${attempt + 1}/3) in corso...`);
+          await new Promise((r) => setTimeout(r, 2200));
+          return handleProcessCurrentPage(attempt + 1);
+        }
         throw new Error(errJson.error || 'Errore durante l\'elaborazione della pagina');
       }
 
@@ -233,8 +243,8 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
       setTimeout(() => setStatusMessage(null), 3000);
     } catch (err: any) {
       console.error(err);
-      alert('Errore elaborazione pagina: ' + (err.message || 'Riprova'));
-      setStatusMessage(null);
+      setStatusMessage(err.message || 'Errore durante l\'elaborazione. Puoi riprovare tra qualche secondo.');
+      setTimeout(() => setStatusMessage(null), 6000);
     } finally {
       setIsProcessingPage(false);
     }
@@ -547,7 +557,7 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
             </button>
           ) : (
             <button
-              onClick={handleProcessCurrentPage}
+              onClick={() => handleProcessCurrentPage(1)}
               disabled={isProcessingPage}
               className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all disabled:opacity-50 cursor-pointer"
             >
