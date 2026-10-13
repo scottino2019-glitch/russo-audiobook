@@ -1,9 +1,12 @@
 import * as pdfjsLib from 'pdfjs-dist';
+// Vite native URL import ensures the worker is bundled and hashed into /assets/ with exact JS MIME type
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Configure worker URL from local static build
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/build/pdf.worker.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 }
+
+const CDN_ASSETS_BASE = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}`;
 
 class PdfService {
   private currentPdfDoc: any = null;
@@ -15,10 +18,10 @@ class PdfService {
       data: new Uint8Array(arrayBuffer),
       useWorkerFetch: false,
       useSystemFonts: true,
-      wasmUrl: '/pdfjs/wasm/',
-      cMapUrl: '/pdfjs/cmaps/',
+      wasmUrl: `${CDN_ASSETS_BASE}/wasm/`,
+      cMapUrl: `${CDN_ASSETS_BASE}/cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: '/pdfjs/standard_fonts/',
+      standardFontDataUrl: `${CDN_ASSETS_BASE}/standard_fonts/`,
     });
 
     this.currentPdfDoc = await loadingTask.promise;
@@ -34,10 +37,10 @@ class PdfService {
       data: new Uint8Array(bufferCopy),
       useWorkerFetch: false,
       useSystemFonts: true,
-      wasmUrl: '/pdfjs/wasm/',
-      cMapUrl: '/pdfjs/cmaps/',
+      wasmUrl: `${CDN_ASSETS_BASE}/wasm/`,
+      cMapUrl: `${CDN_ASSETS_BASE}/cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: '/pdfjs/standard_fonts/',
+      standardFontDataUrl: `${CDN_ASSETS_BASE}/standard_fonts/`,
     });
 
     this.currentPdfDoc = await loadingTask.promise;
