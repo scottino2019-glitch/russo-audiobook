@@ -30,12 +30,40 @@ import { PdfTextbookViewer } from './components/PdfTextbookViewer';
 
 function sanitizeLessonPage(page: any): LessonPage {
   if (!page || typeof page !== 'object') return LESSON_1_DATA;
-  const rawExercises = Array.isArray(page.exercises) ? page.exercises : [];
+  let rawExercises = Array.isArray(page.exercises)
+    ? page.exercises
+    : Array.isArray(page.esercizi)
+    ? page.esercizi
+    : Array.isArray(page.items)
+    ? page.items
+    : [];
   const rawVocab = Array.isArray(page.vocabulary)
     ? page.vocabulary
     : Array.isArray(page.vocabularies)
     ? page.vocabularies
     : [];
+
+  // Fallback: if rawExercises is empty but rawVocab has items, auto-generate an exercise
+  if (rawExercises.length === 0 && rawVocab.length > 0) {
+    rawExercises = [
+      {
+        id: `ex-vocab-auto`,
+        number: '1',
+        titleRu: page.lessonTitle || 'Словарь и фразы страницы',
+        titleIt: 'Parole ed espressioni della pagina',
+        descriptionIt: 'Ascolta e ripeti ciascun termine pronunciato con accento autentico.',
+        audioItems: rawVocab.map((v: any, vIdx: number) => ({
+          id: `v-auto-${vIdx}`,
+          textRu: v.wordRu || v.word || '',
+          label: v.wordRu || v.word || '',
+          ipa: v.ipa || '',
+          italianPhonetic: v.ipa || '',
+          audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
+          explanationIt: v.translationIt || v.translation || '',
+        })),
+      },
+    ];
+  }
 
   return {
     ...page,
@@ -55,11 +83,33 @@ function sanitizeLessonPage(page: any): LessonPage {
           audioItems: [],
         };
       }
-      const rawAudio = Array.isArray(ex.audioItems)
+      let rawAudio = Array.isArray(ex.audioItems)
         ? ex.audioItems
         : Array.isArray(ex.items)
         ? ex.items
+        : Array.isArray(ex.elements)
+        ? ex.elements
+        : Array.isArray(ex.words)
+        ? ex.words
+        : Array.isArray(ex.phrases)
+        ? ex.phrases
         : [];
+
+      // If ex itself contains direct textRu/text, convert to an audio item
+      if (rawAudio.length === 0 && (ex.textRu || ex.text || ex.audioTextToSpeak)) {
+        rawAudio = [
+          {
+            id: `item-${idx}-0`,
+            textRu: ex.textRu || ex.text || '',
+            label: ex.titleRu || ex.textRu || ex.text || '',
+            ipa: ex.ipa || '',
+            italianPhonetic: ex.italianPhonetic || '',
+            audioTextToSpeak: ex.audioTextToSpeak || ex.textRu || ex.text || '',
+            explanationIt: ex.explanationIt || ex.descriptionIt || '',
+          },
+        ];
+      }
+
       return {
         ...ex,
         id: ex.id || `ex-${idx}`,
@@ -115,6 +165,242 @@ function sanitizeLessonPage(page: any): LessonPage {
       };
     }),
   };
+}
+
+// Universal Exercise Cards Renderer
+function ExerciseCardsList({
+  exercises,
+  isDefaultLesson1,
+  poster,
+  ex1,
+  ex2,
+  ex3,
+  ex4,
+  onGoToPdf,
+  onOpenScanner,
+}: {
+  exercises: any[];
+  isDefaultLesson1: boolean;
+  poster: any;
+  ex1: any;
+  ex2: any;
+  ex3: any;
+  ex4: any;
+  onGoToPdf?: () => void;
+  onOpenScanner?: () => void;
+}) {
+  // 1. If this is the preloaded Lesson 1 (introductory vowels page 10-11)
+  if (isDefaultLesson1) {
+    return (
+      <div className="space-y-6">
+        {poster && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+            <div className="bg-gradient-to-r from-red-50 to-amber-50 px-6 py-4 border-b border-red-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xl">🕊️</span>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">{poster.titleRu}</h3>
+                  <p className="text-xs text-red-800">{poster.titleIt}</p>
+                </div>
+              </div>
+              <span className="text-xs bg-red-100 text-red-800 px-3 py-1 rounded-full font-medium">
+                Testata Pagina 10
+              </span>
+            </div>
+            <div className="p-6">
+              <p className="text-xs text-slate-600 mb-4">{poster.descriptionIt}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {(Array.isArray(poster?.audioItems) ? poster.audioItems : []).map((item: any) => (
+                  <div key={item.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between">
+                    <div>
+                      <div className="text-xl font-black text-slate-900 font-sans">{item.textRu}</div>
+                      <div className="text-xs text-slate-500 font-mono mt-0.5">{item.ipa}</div>
+                      <p className="text-[11px] text-slate-600 mt-2">{item.explanationIt}</p>
+                    </div>
+                    <button
+                      onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
+                      className="mt-3 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Ascolta pronuncia</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {poster.exerciseNotesIt && (
+                <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                  💡 {poster.exerciseNotesIt}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {ex1 && (
+          <VowelsTableCard
+            items={ex1.audioItems || []}
+            title={ex1.titleRu}
+            notes={ex1.exerciseNotesIt}
+          />
+        )}
+
+        {ex2 && (
+          <CursiveCanvas
+            items={ex2.audioItems || []}
+            title={ex2.titleRu}
+            notes={ex2.exerciseNotesIt}
+          />
+        )}
+
+        {ex3 && (
+          <DiagramReader
+            items={ex3.audioItems || []}
+            title={ex3.titleRu}
+            notes={ex3.exerciseNotesIt}
+          />
+        )}
+
+        {ex4 && (
+          <VowelsTableCard
+            items={ex4.audioItems || []}
+            title={ex4.titleRu}
+            notes={ex4.exerciseNotesIt}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // 2. FOR ALL GENERATED / SCANNED PAGES (any page of the 300 pages)
+  if (!exercises || exercises.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-sm">
+        <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4">
+          <Headphones className="w-7 h-7" />
+        </div>
+        <h4 className="font-bold text-slate-900 text-lg mb-1">
+          Nessun esercizio audio trovato automaticamente per questa pagina
+        </h4>
+        <p className="text-xs text-slate-500 max-w-md mx-auto mb-6">
+          La pagina potrebbe non contenere testo russo o esercizi di pronuncia. Puoi rilanciare l'analisi con l'IA oppure incollare manualmente il testo russo da riprodurre con audio.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {onGoToPdf && (
+            <button
+              onClick={onGoToPdf}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Torna al PDF</span>
+            </button>
+          )}
+          {onOpenScanner && (
+            <button
+              onClick={onOpenScanner}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Inserisci Testo o Foto</span>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Render all extracted exercises with rich audio buttons
+  return (
+    <div className="space-y-6">
+      {exercises.map((ex: any, exIdx: number) => {
+        const audioList = Array.isArray(ex?.audioItems) ? ex.audioItems : [];
+        return (
+          <div key={ex.id || `ex-${exIdx}`} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm overflow-hidden">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3 border-b border-slate-100 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-extrabold text-xs">
+                    {ex.number ? `Es. ${ex.number}` : `Esercizio ${exIdx + 1}`}
+                  </span>
+                  <h4 className="font-black text-slate-900 text-base font-sans">{ex.titleRu}</h4>
+                </div>
+                {ex.titleIt && <p className="text-xs text-amber-800 font-semibold mt-1">{ex.titleIt}</p>}
+              </div>
+
+              <span className="text-[11px] bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md font-medium">
+                {audioList.length} {audioList.length === 1 ? 'audio' : 'elementi audio'}
+              </span>
+            </div>
+
+            {ex.descriptionIt && (
+              <p className="text-xs text-slate-600 mb-4 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 leading-relaxed">
+                📖 {ex.descriptionIt}
+              </p>
+            )}
+
+            {audioList.length === 0 ? (
+              <div className="text-xs text-slate-400 py-4 text-center italic">
+                Nessuna frase o parola audio presente per questo esercizio.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {audioList.map((item: any, itIdx: number) => (
+                  <div
+                    key={item.id || `item-${exIdx}-${itIdx}`}
+                    className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-white transition-all flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="text-xl font-black text-slate-900 font-sans tracking-wide leading-snug">
+                        {item.textRu}
+                      </div>
+                      {item.ipa && (
+                        <div className="text-xs font-mono text-slate-500 mt-1">
+                          {item.ipa}
+                        </div>
+                      )}
+                      {item.italianPhonetic && (
+                        <div className="text-[11px] text-amber-700 italic mt-0.5 font-medium">
+                          "{item.italianPhonetic}"
+                        </div>
+                      )}
+                      {item.explanationIt && (
+                        <p className="text-xs text-slate-600 mt-2.5 leading-relaxed border-t border-slate-100 pt-2">
+                          {item.explanationIt}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-3 pt-2.5 flex items-center gap-2 border-t border-slate-200/60">
+                      <button
+                        onClick={() => audioService.playText(item.audioTextToSpeak || item.textRu, item.id || `item-${exIdx}-${itIdx}`)}
+                        className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <span>Ascolta</span>
+                      </button>
+
+                      <button
+                        onClick={() => audioService.playText(item.audioSlowTextToSpeak || item.audioTextToSpeak || item.textRu, `${item.id || itIdx}-slow`, { rate: 0.6 })}
+                        className="py-2 px-2.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                        title="Ascolto lento (0.6x)"
+                      >
+                        0.6x
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {ex.exerciseNotesIt && (
+              <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                💡 <strong>Consiglio didattico:</strong> {ex.exerciseNotesIt}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function App() {
@@ -176,6 +462,7 @@ export default function App() {
 
   // Safe exercise selectors
   const lessonExercises = Array.isArray(currentLesson?.exercises) ? currentLesson.exercises : [];
+  const isDefaultLesson1 = currentLesson?.id === LESSON_1_DATA.id || currentLesson?.id === 'startup-a1-lesson-1-p10';
   const ex1 = lessonExercises.find((e) => e && String(e.number) === '1');
   const ex2 = lessonExercises.find((e) => e && String(e.number) === '2');
   const ex3 = lessonExercises.find((e) => e && String(e.number) === '3');
@@ -345,85 +632,17 @@ export default function App() {
               </div>
 
               {/* Exercises Column in split mode */}
-              <div className="space-y-6">
-                {poster && (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                    <h4 className="font-bold text-slate-900 text-sm mb-1">{poster.titleRu}</h4>
-                    <p className="text-xs text-slate-500 mb-3">{poster.descriptionIt}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {(Array.isArray(poster?.audioItems) ? poster.audioItems : []).map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                          className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-colors cursor-pointer"
-                        >
-                          <div className="font-bold text-base text-slate-900">{item.textRu}</div>
-                          <div className="text-xs text-slate-500 font-mono">{item.ipa}</div>
-                          <div className="text-[11px] text-amber-700 mt-1 font-semibold flex items-center gap-1">
-                            <Volume2 className="w-3 h-3" />
-                            <span>Ascolta</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {ex1 && (
-                  <VowelsTableCard
-                    items={ex1.audioItems || []}
-                    title={ex1.titleRu}
-                    notes={ex1.exerciseNotesIt}
-                  />
-                )}
-
-                {ex2 && (
-                  <CursiveCanvas
-                    items={ex2.audioItems || []}
-                    title={ex2.titleRu}
-                    notes={ex2.exerciseNotesIt}
-                  />
-                )}
-
-                {ex3 && (
-                  <DiagramReader
-                    items={ex3.audioItems || []}
-                    title={ex3.titleRu}
-                    notes={ex3.exerciseNotesIt}
-                  />
-                )}
-
-                {ex4 && (
-                  <VowelsTableCard
-                    items={ex4.audioItems || []}
-                    title={ex4.titleRu}
-                    notes={ex4.exerciseNotesIt}
-                  />
-                )}
-
-                {otherExercises.map((ex) => (
-                  <div key={ex.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                    <h4 className="font-bold text-slate-900 text-sm mb-1">{ex.titleRu}</h4>
-                    <p className="text-xs text-slate-500 mb-3">{ex.descriptionIt}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(Array.isArray(ex?.audioItems) ? ex.audioItems : []).map((item) => (
-                        <div key={item.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-sm text-slate-900">{item.textRu}</div>
-                            {item.ipa && <div className="text-xs font-mono text-slate-500">{item.ipa}</div>}
-                          </div>
-                          <button
-                            onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                            className="p-2 rounded-lg bg-slate-900 text-white cursor-pointer"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ExerciseCardsList
+                exercises={lessonExercises}
+                isDefaultLesson1={isDefaultLesson1}
+                poster={poster}
+                ex1={ex1}
+                ex2={ex2}
+                ex3={ex3}
+                ex4={ex4}
+                onGoToPdf={() => setSplitViewActive(false)}
+                onOpenScanner={() => setIsScannerOpen(true)}
+              />
             </div>
           </div>
         ) : (
@@ -466,118 +685,18 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Poster "МИР МАЙ" section from the photo */}
-                {poster && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-                    <div className="bg-gradient-to-r from-red-50 to-amber-50 px-6 py-4 border-b border-red-100 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">🕊️</span>
-                        <div>
-                          <h3 className="font-bold text-slate-900 text-base">{poster.titleRu}</h3>
-                          <p className="text-xs text-red-800">{poster.titleIt}</p>
-                        </div>
-                      </div>
-
-                      <span className="text-xs bg-red-100 text-red-800 px-3 py-1 rounded-full font-medium">
-                        Testata Pagina 10
-                      </span>
-                    </div>
-
-                    <div className="p-6">
-                      <p className="text-xs text-slate-600 mb-4">{poster.descriptionIt}</p>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {(Array.isArray(poster?.audioItems) ? poster.audioItems : []).map((item) => (
-                          <div
-                            key={item.id}
-                            className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between"
-                          >
-                            <div>
-                              <div className="text-xl font-black text-slate-900 font-sans">{item.textRu}</div>
-                              <div className="text-xs text-slate-500 font-mono mt-0.5">{item.ipa}</div>
-                              <p className="text-[11px] text-slate-600 mt-2">{item.explanationIt}</p>
-                            </div>
-
-                            <button
-                              onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                              className="mt-3 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                            >
-                              <Volume2 className="w-3.5 h-3.5" />
-                              <span>Ascolta pronuncia</span>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-
-                      {poster.exerciseNotesIt && (
-                        <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                          💡 {poster.exerciseNotesIt}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Exercise 1: 🎧 1. Слушайте, повторяйте, читайте (А, О, У) */}
-                {ex1 && (
-                  <VowelsTableCard
-                    items={ex1.audioItems || []}
-                    title={ex1.titleRu}
-                    notes={ex1.exerciseNotesIt}
-                  />
-                )}
-
-                {/* Exercise 2: ✍️ 2. Пишите (Preview & Quick Audio for letter pairs) */}
-                {ex2 && (
-                  <CursiveCanvas
-                    items={ex2.audioItems || []}
-                    title={ex2.titleRu}
-                    notes={ex2.exerciseNotesIt}
-                  />
-                )}
-
-                {/* Exercise 3: 💼 3. Читайте (Interactive diagram from the book) */}
-                {ex3 && (
-                  <DiagramReader
-                    items={ex3.audioItems || []}
-                    title={ex3.titleRu}
-                    notes={ex3.exerciseNotesIt}
-                  />
-                )}
-
-                {/* Exercise 4: 🎧 4. Слушайте, повторяйте, читайте (И, Э, Ы) */}
-                {ex4 && (
-                  <VowelsTableCard
-                    items={ex4.audioItems || []}
-                    title={ex4.titleRu}
-                    notes={ex4.exerciseNotesIt}
-                  />
-                )}
-
-                {/* Other custom extracted exercises if page was uploaded/generated */}
-                {otherExercises.map((ex) => (
-                  <div key={ex.id} className="bg-white rounded-2xl border border-slate-200 p-6 mb-6 shadow-sm">
-                    <h4 className="font-bold text-slate-900 text-base mb-1">{ex.titleRu}</h4>
-                    <p className="text-xs text-slate-500 mb-4">{ex.descriptionIt}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {(Array.isArray(ex?.audioItems) ? ex.audioItems : []).map((item) => (
-                        <div key={item.id} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-slate-900 text-base">{item.textRu}</div>
-                            {item.ipa && <div className="text-xs font-mono text-slate-500">{item.ipa}</div>}
-                            {item.explanationIt && <div className="text-[11px] text-slate-600">{item.explanationIt}</div>}
-                          </div>
-                          <button
-                            onClick={() => audioService.playText(item.audioTextToSpeak, item.id)}
-                            className="p-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer"
-                          >
-                            <Volume2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                {/* Exercises Cards List (Automatic universal rendering for all 300 pages) */}
+                <ExerciseCardsList
+                  exercises={lessonExercises}
+                  isDefaultLesson1={isDefaultLesson1}
+                  poster={poster}
+                  ex1={ex1}
+                  ex2={ex2}
+                  ex3={ex3}
+                  ex4={ex4}
+                  onGoToPdf={() => setActiveTab('pdf')}
+                  onOpenScanner={() => setIsScannerOpen(true)}
+                />
               </div>
             )}
 

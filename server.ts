@@ -50,9 +50,9 @@ function getAIClient() {
   return new GoogleGenAI({ apiKey });
 }
 
-// Resilient content generator that falls back across flash models if 503 high demand occurs
+// Resilient content generator that prioritizes fast available flash models
 async function generateContentWithFallback(ai: GoogleGenAI, contents: any, config: any) {
-  const models = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-2.5-flash', 'gemini-3.8-flash'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -91,59 +91,71 @@ app.post('/api/analyze-page', async (req, res) => {
     // Clean base64 if it includes data URL scheme
     const cleanBase64 = imageBase64 ? imageBase64.replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '') : null;
 
-    const prompt = `Sei un esperto insegnante di lingua russa madrelingua e glottodidatta per studenti italiani.
-L'utente ha caricato una pagina o foto del libro di testo "Стартап А1" (o simile libro di russo A1).
-Questa pagina contiene esercizi di ascolto (indicati con l'icona delle cuffie 🎧 o numeri come "Слушайте, повторяйте, читайте"), esercizi di scrittura ✏️ o lettura 📖.
+    const prompt = `Sei un esperto insegnante madrelingua russo e glottodidatta per studenti italiani di livello A1.
+L'utente ha scansionato o fotografato la pagina ${pageNumber ? String(pageNumber) : ''} del libro di testo di lingua russa (es. "Стартап А1").
 
-Compito:
-1. Trascrivi fedelmente e analizza tutti gli esercizi presenti nell'immagine.
-2. Per ogni esercizio identifica:
-   - Numero esercizio e titolo originale in russo (es. "1. Слушайте, повторяйте, читайте.")
-   - Traduzione italiana del titolo (es. "Ascoltate, ripetete, leggete.")
-   - Tipo di esercizio (fonetica/vocali, combinazioni, diagramma di lettura, parole, sillabe, dialogo)
-   - Tutti gli elementi da ascoltare/pronunciare (lettere, suoni, sillabe, combinazioni come 'оа', 'ао', 'ау', parole come 'мир', 'май').
-   - Per ogni elemento: testo in russo, trascrizione fonetica / IPA, istruzioni di pronuncia per un italiano (es. posizione della bocca, vocale dura vs dolce, riduzione vocalica).
-   - Testo esatto che la voce guida deve pronunciare.
-   - Note didattiche e consigli per italiani.
+COMPITO PRINCIPALE:
+Trascrivi TUTTI i contenuti e gli esercizi presenti nella pagina e trasformali in elementi audio interattivi per lo studio della pronuncia.
+Includi:
+- Esercizi numerati (1, 2, 3...) di qualsiasi tipo: ascolto (🎧 Слушайте), ripetizione (Повторяйте), lettura (📖 Читайте), scrittura (✏️ Пишите), sillabe, dialoghi (Диалог), vocabolario (Словарь).
+- Per ciascun esercizio, identifica TUTTI gli elementi da ascoltare (parole, lettere, sillabe, combinazioni, frasi del dialogo, domande e risposte).
+- Per OGNI elemento audio:
+  * "textRu": testo originale in cirillico
+  * "label": etichetta descrittiva chiara
+  * "ipa": trascrizione fonetica tra parentesi quadre
+  * "italianPhonetic": pronuncia approssimata all'italiana (es. "privèt", "kak delà")
+  * "audioTextToSpeak": testo esatto che la sintesi vocale deve pronunciare
+  * "explanationIt": traduzione o significato in italiano
 
-Rispondi ESCLUSIVAMENTE in formato JSON valido con questa struttura esatta:
+REGOLA CRUCIALE:
+NON lasciare MAI l'array "exercises" vuoto. Se la pagina contiene testo in russo, frasi, vocabolario o spiegazioni con esempi, raggruppali in uno o più esercizi completi di elementi audio, così che lo studente possa sempre ascoltare la voce nativa per ogni riga!
+
+Rispondi ESCLUSIVAMENTE in formato JSON valido:
 {
-  "lessonTitle": "УРОК ...",
-  "pageNumber": "...",
-  "overviewIt": "Breve descrizione in italiano di ciò che si impara in questa pagina",
+  "lessonTitle": "Titolo Lezione o Argomento della Pagina",
+  "pageNumber": "${pageNumber || '1'}",
+  "overviewIt": "Sintesi chiara in italiano degli argomenti trattati in questa pagina",
   "exercises": [
     {
       "id": "ex_1",
       "number": "1",
-      "titleRu": "Слушайте, повторяйте, читайте.",
-      "titleIt": "Ascoltate, ripetete, leggete.",
-      "type": "vowels_table",
-      "descriptionIt": "Spiegazione per lo studente italiano",
+      "titleRu": "Titolo originale in russo",
+      "titleIt": "Traduzione del titolo in italiano",
+      "type": "reading | listening | dialogue | vocabulary | cursive",
+      "descriptionIt": "Istruzioni per lo studente in italiano",
+      "exerciseNotesIt": "Consigli di pronuncia o grammatica per italiani",
       "audioItems": [
         {
           "id": "item_1",
-          "textRu": "А а",
-          "label": "Lettera А а",
-          "ipa": "[a]",
-          "italianPhonetic": "Come la 'a' italiana in 'casa', aperta e rilassata",
-          "audioTextToSpeak": "Буква А, звук А. А.",
-          "explanationIt": "Vocale dura."
+          "textRu": "Привет",
+          "label": "Привет",
+          "ipa": "[prʲiˈvʲet]",
+          "italianPhonetic": "privièt",
+          "audioTextToSpeak": "Привет",
+          "explanationIt": "Ciao (informale)"
         }
-      ],
-      "exerciseNotesIt": "Note o curiosità utili"
+      ]
     }
   ],
   "vocabulary": [
     {
-      "wordRu": "мир",
-      "ipa": "[mʲir]",
-      "translationIt": "pace / mondo",
-      "audioTextToSpeak": "мир"
+      "wordRu": "Привет",
+      "ipa": "[prʲiˈvʲet]",
+      "translationIt": "Ciao",
+      "audioTextToSpeak": "Привет",
+      "notesIt": "Saluto informale"
     }
   ]
 }`;
 
     const parts: any[] = [{ text: prompt }];
+
+    if (rawText && typeof rawText === 'string' && rawText.trim().length > 0) {
+      parts.push({
+        text: `TESTO ESTRATTO DAL DOCUMENTO PDF:\n${rawText.slice(0, 10000)}`,
+      });
+    }
+
     if (cleanBase64) {
       parts.push({
         inlineData: {
@@ -159,8 +171,74 @@ Rispondi ESCLUSIVAMENTE in formato JSON valido con questa struttura esatta:
       { responseMimeType: 'application/json' }
     );
 
-    const responseText = response.text || '{}';
-    const parsed = JSON.parse(responseText);
+    let responseText = (response.text || '{}').trim();
+    if (responseText.startsWith('```')) {
+      responseText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.warn('JSON direct parse failed, attempting extraction:', parseErr);
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Risposta IA non valida');
+      }
+    }
+
+    // Safety fallback: if exercises array is empty or missing, populate from vocabulary or text
+    if (!Array.isArray(parsed.exercises) || parsed.exercises.length === 0) {
+      console.log('Exercises was empty, auto-generating fallback from parsed data or raw text');
+      const fallbackItems: any[] = [];
+
+      if (Array.isArray(parsed.vocabulary) && parsed.vocabulary.length > 0) {
+        parsed.vocabulary.forEach((v: any, i: number) => {
+          fallbackItems.push({
+            id: `fb-${i}`,
+            textRu: v.wordRu || v.word || '',
+            label: v.wordRu || v.word || '',
+            ipa: v.ipa || '',
+            italianPhonetic: v.ipa || '',
+            audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
+            explanationIt: v.translationIt || v.translation || '',
+          });
+        });
+      } else if (rawText && rawText.trim().length > 0) {
+        const words = rawText
+          .split(/[\n,.;:!?]+/)
+          .map((w: string) => w.trim())
+          .filter((w: string) => w.length > 1 && /[а-яА-ЯёЁ]/.test(w))
+          .slice(0, 30);
+
+        words.forEach((w: string, i: number) => {
+          fallbackItems.push({
+            id: `fb-text-${i}`,
+            textRu: w,
+            label: w,
+            ipa: '',
+            italianPhonetic: '',
+            audioTextToSpeak: w,
+            explanationIt: 'Parola estratta dalla pagina',
+          });
+        });
+      }
+
+      parsed.exercises = [
+        {
+          id: 'ex-generated-fallback',
+          number: '1',
+          titleRu: parsed.lessonTitle || 'Материалы страницы (Contenuti della Pagina)',
+          titleIt: 'Ascolto e lettura dei contenuti estratti',
+          type: 'standard_audio_list',
+          descriptionIt: 'Clicca su ciascuna parola o frase per ascoltare la corretta pronuncia russa.',
+          audioItems: fallbackItems,
+        },
+      ];
+    }
+
     res.json(parsed);
   } catch (error: any) {
     console.error('Error analyzing page:', error);
