@@ -52,7 +52,8 @@ function getAIClient() {
 
 // Resilient content generator that prioritizes fast available flash models
 async function generateContentWithFallback(ai: GoogleGenAI, contents: any, config: any) {
-  const models = ['gemini-2.5-flash', 'gemini-3.8-flash'];
+  // Use tested working models in order: 2.5-flash and 3.1-flash-lite are immediate, followed by latest and 3.8
+  const models = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -66,7 +67,7 @@ async function generateContentWithFallback(ai: GoogleGenAI, contents: any, confi
     } catch (err: any) {
       console.warn(`Model ${model} request returned:`, err?.status || err?.message || err);
       lastError = err;
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
   }
   throw lastError;
@@ -92,23 +93,31 @@ app.post('/api/analyze-page', async (req, res) => {
     const cleanBase64 = imageBase64 ? imageBase64.replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '') : null;
 
     const prompt = `Sei un esperto insegnante madrelingua russo e glottodidatta per studenti italiani di livello A1.
-L'utente ha scansionato o fotografato la pagina ${pageNumber ? String(pageNumber) : ''} del libro di testo di lingua russa (es. "Стартап А1").
+L'utente ha aperto o scansionato la pagina ${pageNumber ? String(pageNumber) : ''} del libro di testo di lingua russa (es. "Стартап А1").
 
 COMPITO PRINCIPALE:
-Trascrivi TUTTI i contenuti e gli esercizi presenti nella pagina e trasformali in elementi audio interattivi per lo studio della pronuncia.
-Includi:
-- Esercizi numerati (1, 2, 3...) di qualsiasi tipo: ascolto (🎧 Слушайте), ripetizione (Повторяйте), lettura (📖 Читайте), scrittura (✏️ Пишите), sillabe, dialoghi (Диалог), vocabolario (Словарь).
-- Per ciascun esercizio, identifica TUTTI gli elementi da ascoltare (parole, lettere, sillabe, combinazioni, frasi del dialogo, domande e risposte).
-- Per OGNI elemento audio:
-  * "textRu": testo originale in cirillico
-  * "label": etichetta descrittiva chiara
-  * "ipa": trascrizione fonetica tra parentesi quadre
-  * "italianPhonetic": pronuncia approssimata all'italiana (es. "privèt", "kak delà")
-  * "audioTextToSpeak": testo esatto che la sintesi vocale deve pronunciare
-  * "explanationIt": traduzione o significato in italiano
+Trascrivi TUTTI i contenuti e gli esercizi presenti nella pagina e trasformali in schede di ascolto audio interattive per lo studente.
+Per OGNI esercizio presente nella pagina:
+1. "number": numero esercizio ("1", "2", "3"...)
+2. "titleRu": titolo originale in russo (es. "Слушайте и повторяйте", "Читайте", "Диалог", "Словарь")
+3. "titleIt": traduzione in italiano del titolo
+4. "descriptionIt": istruzioni chiare per lo studente in italiano
+5. "exerciseNotesIt": suggerimento didattico o fonetico
+6. "audioItems": array OBBLIGATORIO con TUTTE le parole, lettere, sillabe, frasi del dialogo o battute da ascoltare.
 
-REGOLA CRUCIALE:
-NON lasciare MAI l'array "exercises" vuoto. Se la pagina contiene testo in russo, frasi, vocabolario o spiegazioni con esempi, raggruppali in uno o più esercizi completi di elementi audio, così che lo studente possa sempre ascoltare la voce nativa per ogni riga!
+PER CIASCUN ELEMENTO AUDIO in "audioItems":
+- "textRu": (OBBLIGATORIO - NON LASCIARE MAI VUOTO!) la parola, frase, lettera o espressione in russo autentico cirillico.
+- "label": titolo breve (es. "Привет", "Здравствуйте", "А - О - У")
+- "ipa": trascrizione fonetica tra parentesi quadre
+- "italianPhonetic": pronuncia all'italiana (es. "privièt", "zdravstvujte")
+- "audioTextToSpeak": testo esatto da pronunciare in russo
+- "explanationIt": traduzione chiara in italiano
+
+REGOLA CRUCIALE ANTI-VUOTO:
+- NON lasciare MAI "textRu" vuoto o indefinito! Ogni elemento DEVE contenere il testo russo da pronunciare.
+- Se la pagina contiene un dialogo, ogni battuta deve essere un elemento audio separato con traduzione.
+- Se la pagina contiene tabelle di sillabe o lettere (А, О, У, И, Э, Ы), ogni lettera o combinazione deve essere un elemento audio.
+- Se la pagina contiene vocaboli, inseriscili sia in "exercises" che in "vocabulary".
 
 Rispondi ESCLUSIVAMENTE in formato JSON valido:
 {
@@ -119,14 +128,14 @@ Rispondi ESCLUSIVAMENTE in formato JSON valido:
     {
       "id": "ex_1",
       "number": "1",
-      "titleRu": "Titolo originale in russo",
-      "titleIt": "Traduzione del titolo in italiano",
-      "type": "reading | listening | dialogue | vocabulary | cursive",
-      "descriptionIt": "Istruzioni per lo studente in italiano",
-      "exerciseNotesIt": "Consigli di pronuncia o grammatica per italiani",
+      "titleRu": "Слушайте и повторяйте",
+      "titleIt": "Ascoltate e ripetete",
+      "type": "listening",
+      "descriptionIt": "Ascolta ciascuna frase e ripeti a voce alta curando l'intonazione.",
+      "exerciseNotesIt": "Attenzione all'accento tonico che rende le vocali chiare.",
       "audioItems": [
         {
-          "id": "item_1",
+          "id": "item_1_1",
           "textRu": "Привет",
           "label": "Привет",
           "ipa": "[prʲiˈvʲet]",
@@ -189,26 +198,163 @@ Rispondi ESCLUSIVAMENTE in formato JSON valido:
       }
     }
 
-    // Safety fallback: if exercises array is empty or missing, populate from vocabulary or text
-    if (!Array.isArray(parsed.exercises) || parsed.exercises.length === 0) {
-      console.log('Exercises was empty, auto-generating fallback from parsed data or raw text');
+    // Normalization helper: extract Russian text from any object/property
+    const extractRussianText = (it: any): string => {
+      if (!it) return '';
+      if (typeof it === 'string') return it.trim();
+      const candidates = [
+        it.textRu, it.text_ru, it.text, it.ru, it.russian,
+        it.wordRu, it.word_ru, it.word, it.phrase, it.phraseRu,
+        it.sentence, it.label, it.audioTextToSpeak
+      ];
+      for (const c of candidates) {
+        if (typeof c === 'string' && c.trim().length > 0) return c.trim();
+      }
+      // Search all object values for Cyrillic
+      for (const val of Object.values(it)) {
+        if (typeof val === 'string' && /[а-яА-ЯёЁ]/.test(val) && val.trim().length > 0) {
+          return val.trim();
+        }
+      }
+      return '';
+    };
+
+    // Normalization helper: extract Italian explanation from any object/property
+    const extractItalianText = (it: any): string => {
+      if (!it || typeof it === 'string') return '';
+      const candidates = [
+        it.explanationIt, it.explanation_it, it.explanation,
+        it.translationIt, it.translation_it, it.translation,
+        it.meaning, it.meaningIt, it.italian, it.it,
+        it.traduzione, it.spiegazione, it.notesIt
+      ];
+      for (const c of candidates) {
+        if (typeof c === 'string' && c.trim().length > 0) return c.trim();
+      }
+      for (const [k, val] of Object.entries(it)) {
+        if (
+          typeof val === 'string' &&
+          val.trim().length > 0 &&
+          !/[а-яА-ЯёЁ]/.test(val) &&
+          !['id', 'ipa', 'type', 'soundType'].includes(k)
+        ) {
+          return val.trim();
+        }
+      }
+      return '';
+    };
+
+    // Normalize raw exercises if returned as object or under other names
+    let exercisesList: any[] = [];
+    const possibleExercises = parsed.exercises || parsed.esercizi || parsed.tasks || parsed.content || parsed.items;
+    if (Array.isArray(possibleExercises)) {
+      exercisesList = possibleExercises;
+    } else if (possibleExercises && typeof possibleExercises === 'object') {
+      exercisesList = Object.values(possibleExercises);
+    }
+
+    // Process and clean each exercise
+    const cleanedExercises: any[] = [];
+    exercisesList.forEach((ex: any, exIdx: number) => {
+      if (!ex || typeof ex !== 'object') return;
+
+      const rawItems = Array.isArray(ex.audioItems)
+        ? ex.audioItems
+        : Array.isArray(ex.audio_items)
+        ? ex.audio_items
+        : Array.isArray(ex.items)
+        ? ex.items
+        : Array.isArray(ex.elements)
+        ? ex.elements
+        : Array.isArray(ex.words)
+        ? ex.words
+        : Array.isArray(ex.phrases)
+        ? ex.phrases
+        : Array.isArray(ex.dialogue)
+        ? ex.dialogue
+        : Array.isArray(ex.sentences)
+        ? ex.sentences
+        : Array.isArray(ex.lines)
+        ? ex.lines
+        : typeof ex.audioItems === 'object' && ex.audioItems !== null
+        ? Object.values(ex.audioItems)
+        : [];
+
+      const audioItems: any[] = [];
+      rawItems.forEach((it: any, itIdx: number) => {
+        const textRu = extractRussianText(it);
+        if (!textRu) return; // Skip completely empty items
+
+        const explanationIt = extractItalianText(it);
+        const ipa = (typeof it === 'object' && (it?.ipa || it?.transcription || it?.phonetic)) || '';
+        const italianPhonetic = (typeof it === 'object' && (it?.italianPhonetic || it?.italian_phonetic || it?.pronunciation || it?.pronuncia)) || '';
+
+        audioItems.push({
+          id: `item-${exIdx}-${itIdx}`,
+          textRu,
+          label: (typeof it === 'object' && it?.label) || textRu,
+          ipa,
+          italianPhonetic,
+          audioTextToSpeak: (typeof it === 'object' && it?.audioTextToSpeak) || textRu,
+          explanationIt,
+        });
+      });
+
+      // If audioItems was empty, check if exercise itself has Russian text or description
+      if (audioItems.length === 0) {
+        const directText = extractRussianText(ex);
+        if (directText) {
+          audioItems.push({
+            id: `item-${exIdx}-0`,
+            textRu: directText,
+            label: directText,
+            ipa: ex.ipa || '',
+            italianPhonetic: ex.italianPhonetic || '',
+            audioTextToSpeak: directText,
+            explanationIt: extractItalianText(ex) || ex.descriptionIt || '',
+          });
+        }
+      }
+
+      cleanedExercises.push({
+        id: ex.id || `ex-${exIdx}`,
+        number: String(ex.number ?? exIdx + 1),
+        titleRu: ex.titleRu || ex.title || (audioItems[0]?.textRu ? `Упражнение: ${audioItems[0].textRu.slice(0, 25)}` : `Упражнение ${exIdx + 1}`),
+        titleIt: ex.titleIt || ex.title_it || '',
+        descriptionIt: ex.descriptionIt || ex.description || '',
+        exerciseNotesIt: ex.exerciseNotesIt || ex.notesIt || '',
+        audioItems,
+      });
+    });
+
+    // Check if total audio items across all exercises is zero
+    const totalAudioCount = cleanedExercises.reduce((acc, ex) => acc + (ex.audioItems?.length || 0), 0);
+
+    if (cleanedExercises.length === 0 || totalAudioCount === 0) {
+      console.log('No valid exercises/audio found, auto-populating from vocabulary or raw text');
       const fallbackItems: any[] = [];
 
-      if (Array.isArray(parsed.vocabulary) && parsed.vocabulary.length > 0) {
-        parsed.vocabulary.forEach((v: any, i: number) => {
-          fallbackItems.push({
-            id: `fb-${i}`,
-            textRu: v.wordRu || v.word || '',
-            label: v.wordRu || v.word || '',
-            ipa: v.ipa || '',
-            italianPhonetic: v.ipa || '',
-            audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
-            explanationIt: v.translationIt || v.translation || '',
-          });
+      const rawVocab = Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [];
+      if (rawVocab.length > 0) {
+        rawVocab.forEach((v: any, i: number) => {
+          const wRu = extractRussianText(v);
+          if (wRu) {
+            fallbackItems.push({
+              id: `fb-${i}`,
+              textRu: wRu,
+              label: wRu,
+              ipa: v.ipa || '',
+              italianPhonetic: v.italianPhonetic || '',
+              audioTextToSpeak: v.audioTextToSpeak || wRu,
+              explanationIt: extractItalianText(v) || 'Parola del vocabolario',
+            });
+          }
         });
-      } else if (rawText && rawText.trim().length > 0) {
+      }
+
+      if (fallbackItems.length === 0 && rawText && rawText.trim().length > 0) {
         const words = rawText
-          .split(/[\n,.;:!?]+/)
+          .split(/[\n,.;:!?«»"—()]+/)
           .map((w: string) => w.trim())
           .filter((w: string) => w.length > 1 && /[а-яА-ЯёЁ]/.test(w))
           .slice(0, 30);
@@ -226,26 +372,26 @@ Rispondi ESCLUSIVAMENTE in formato JSON valido:
         });
       }
 
-      parsed.exercises = [
-        {
-          id: 'ex-generated-fallback',
-          number: '1',
-          titleRu: parsed.lessonTitle || 'Материалы страницы (Contenuti della Pagina)',
-          titleIt: 'Ascolto e lettura dei contenuti estratti',
-          type: 'standard_audio_list',
-          descriptionIt: 'Clicca su ciascuna parola o frase per ascoltare la corretta pronuncia russa.',
-          audioItems: fallbackItems,
-        },
-      ];
+      cleanedExercises.length = 0;
+      cleanedExercises.push({
+        id: 'ex-generated-fallback',
+        number: '1',
+        titleRu: parsed.lessonTitle || 'Материалы страницы (Contenuti della Pagina)',
+        titleIt: 'Ascolto e lettura dei contenuti estratti',
+        type: 'standard_audio_list',
+        descriptionIt: 'Clicca su ciascuna parola o frase per ascoltare la corretta pronuncia russa.',
+        audioItems: fallbackItems,
+      });
     }
 
+    parsed.exercises = cleanedExercises;
     res.json(parsed);
   } catch (error: any) {
     console.error('Error analyzing page:', error);
     const isOverloaded = error?.status === 503 || error?.message?.includes('high demand') || error?.message?.includes('UNAVAILABLE');
     res.status(isOverloaded ? 503 : 500).json({
       error: isOverloaded
-        ? 'I server AI stanno riscontrando un picco temporaneo di richieste. Riprova tra pochi istanti.'
+        ? 'I server AI stanno riscontrando un picco temporaneo di richieste. Clicca su "Riprova Ricerca Esercizi" tra pochi istanti.'
         : error.message || 'Errore durante l\'analisi della pagina',
       isHighDemand: isOverloaded,
     });

@@ -12,7 +12,9 @@ import {
   Layers,
   Mic,
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { LESSON_1_DATA } from './data/lesson1Data';
 import { LessonPage } from './types/lesson';
@@ -28,15 +30,59 @@ import { VoiceRecorderModal } from './components/VoiceRecorderModal';
 import { TutorDrawer } from './components/TutorDrawer';
 import { PdfTextbookViewer } from './components/PdfTextbookViewer';
 
+function extractRussianText(it: any): string {
+  if (!it) return '';
+  if (typeof it === 'string') return it.trim();
+  const candidates = [
+    it.textRu, it.text_ru, it.text, it.ru, it.russian,
+    it.wordRu, it.word_ru, it.word, it.phrase, it.phraseRu,
+    it.sentence, it.label, it.audioTextToSpeak
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c.trim();
+  }
+  for (const val of Object.values(it)) {
+    if (typeof val === 'string' && /[а-яА-ЯёЁ]/.test(val) && val.trim().length > 0) {
+      return val.trim();
+    }
+  }
+  return '';
+}
+
+function extractItalianText(it: any): string {
+  if (!it || typeof it === 'string') return '';
+  const candidates = [
+    it.explanationIt, it.explanation_it, it.explanation,
+    it.translationIt, it.translation_it, it.translation,
+    it.meaning, it.meaningIt, it.italian, it.it,
+    it.traduzione, it.spiegazione, it.notesIt
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c.trim();
+  }
+  for (const [k, val] of Object.entries(it)) {
+    if (
+      typeof val === 'string' &&
+      val.trim().length > 0 &&
+      !/[а-яА-ЯёЁ]/.test(val) &&
+      !['id', 'ipa', 'type', 'soundType'].includes(k)
+    ) {
+      return val.trim();
+    }
+  }
+  return '';
+}
+
 function sanitizeLessonPage(page: any): LessonPage {
   if (!page || typeof page !== 'object') return LESSON_1_DATA;
-  let rawExercises = Array.isArray(page.exercises)
-    ? page.exercises
-    : Array.isArray(page.esercizi)
-    ? page.esercizi
-    : Array.isArray(page.items)
-    ? page.items
-    : [];
+  let rawExercises: any[] = [];
+  const possibleExercises = page.exercises || page.esercizi || page.tasks || page.content || page.items;
+  if (Array.isArray(possibleExercises)) {
+    rawExercises = possibleExercises;
+  } else if (possibleExercises && typeof possibleExercises === 'object') {
+    rawExercises = Object.values(possibleExercises);
+  }
+
   const rawVocab = Array.isArray(page.vocabulary)
     ? page.vocabulary
     : Array.isArray(page.vocabularies)
@@ -52,15 +98,18 @@ function sanitizeLessonPage(page: any): LessonPage {
         titleRu: page.lessonTitle || 'Словарь и фразы страницы',
         titleIt: 'Parole ed espressioni della pagina',
         descriptionIt: 'Ascolta e ripeti ciascun termine pronunciato con accento autentico.',
-        audioItems: rawVocab.map((v: any, vIdx: number) => ({
-          id: `v-auto-${vIdx}`,
-          textRu: v.wordRu || v.word || '',
-          label: v.wordRu || v.word || '',
-          ipa: v.ipa || '',
-          italianPhonetic: v.ipa || '',
-          audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
-          explanationIt: v.translationIt || v.translation || '',
-        })),
+        audioItems: rawVocab.map((v: any, vIdx: number) => {
+          const wRu = extractRussianText(v);
+          return {
+            id: `v-auto-${vIdx}`,
+            textRu: wRu,
+            label: (typeof v === 'object' && v.label) || wRu,
+            ipa: v.ipa || '',
+            italianPhonetic: v.italianPhonetic || '',
+            audioTextToSpeak: v.audioTextToSpeak || wRu,
+            explanationIt: extractItalianText(v) || 'Vocabolario',
+          };
+        }),
       },
     ];
   }
@@ -77,7 +126,7 @@ function sanitizeLessonPage(page: any): LessonPage {
         return {
           id: `ex-${idx}`,
           number: String(idx + 1),
-          titleRu: '',
+          titleRu: `Esercizio ${idx + 1}`,
           titleIt: '',
           type: 'text',
           audioItems: [],
@@ -85,6 +134,8 @@ function sanitizeLessonPage(page: any): LessonPage {
       }
       let rawAudio = Array.isArray(ex.audioItems)
         ? ex.audioItems
+        : Array.isArray(ex.audio_items)
+        ? ex.audio_items
         : Array.isArray(ex.items)
         ? ex.items
         : Array.isArray(ex.elements)
@@ -93,75 +144,70 @@ function sanitizeLessonPage(page: any): LessonPage {
         ? ex.words
         : Array.isArray(ex.phrases)
         ? ex.phrases
+        : Array.isArray(ex.dialogue)
+        ? ex.dialogue
+        : Array.isArray(ex.sentences)
+        ? ex.sentences
+        : Array.isArray(ex.lines)
+        ? ex.lines
+        : typeof ex.audioItems === 'object' && ex.audioItems !== null
+        ? Object.values(ex.audioItems)
         : [];
 
-      // If ex itself contains direct textRu/text, convert to an audio item
-      if (rawAudio.length === 0 && (ex.textRu || ex.text || ex.audioTextToSpeak)) {
-        rawAudio = [
-          {
-            id: `item-${idx}-0`,
-            textRu: ex.textRu || ex.text || '',
-            label: ex.titleRu || ex.textRu || ex.text || '',
-            ipa: ex.ipa || '',
-            italianPhonetic: ex.italianPhonetic || '',
-            audioTextToSpeak: ex.audioTextToSpeak || ex.textRu || ex.text || '',
-            explanationIt: ex.explanationIt || ex.descriptionIt || '',
-          },
-        ];
+      // If ex itself contains direct Russian text, convert to an audio item
+      if (rawAudio.length === 0) {
+        const directText = extractRussianText(ex);
+        if (directText) {
+          rawAudio = [
+            {
+              id: `item-${idx}-0`,
+              textRu: directText,
+              label: directText,
+              ipa: ex.ipa || '',
+              italianPhonetic: ex.italianPhonetic || '',
+              audioTextToSpeak: directText,
+              explanationIt: extractItalianText(ex) || ex.descriptionIt || '',
+            },
+          ];
+        }
       }
 
       return {
         ...ex,
         id: ex.id || `ex-${idx}`,
         number: String(ex.number ?? idx + 1),
-        titleRu: ex.titleRu || '',
-        titleIt: ex.titleIt || '',
-        descriptionIt: ex.descriptionIt || '',
-        exerciseNotesIt: ex.exerciseNotesIt || '',
+        titleRu: ex.titleRu || ex.title || `Esercizio ${idx + 1}`,
+        titleIt: ex.titleIt || ex.title_it || '',
+        descriptionIt: ex.descriptionIt || ex.description || '',
+        exerciseNotesIt: ex.exerciseNotesIt || ex.notesIt || '',
         audioItems: rawAudio.map((it: any, itIdx: number) => {
-          if (!it || typeof it !== 'object') {
-            const strVal = String(it || '');
-            return {
-              id: `item-${idx}-${itIdx}`,
-              textRu: strVal,
-              label: strVal,
-              ipa: '',
-              italianPhonetic: '',
-              audioTextToSpeak: strVal,
-              explanationIt: '',
-            };
-          }
+          const textRu = extractRussianText(it);
+          const explanationIt = extractItalianText(it);
+          const ipa = (typeof it === 'object' && (it.ipa || it.transcription || it.phonetic)) || '';
+          const italianPhonetic = (typeof it === 'object' && (it.italianPhonetic || it.italian_phonetic || it.pronunciation || it.pronuncia)) || '';
+          const audioTextToSpeak = (typeof it === 'object' && it.audioTextToSpeak) || textRu;
           return {
-            ...it,
-            id: it.id || `item-${idx}-${itIdx}`,
-            textRu: it.textRu || it.text || '',
-            label: it.label || it.textRu || it.text || '',
-            ipa: it.ipa || '',
-            italianPhonetic: it.italianPhonetic || '',
-            audioTextToSpeak: it.audioTextToSpeak || it.textRu || it.text || '',
-            explanationIt: it.explanationIt || '',
+            ...(typeof it === 'object' ? it : {}),
+            id: (typeof it === 'object' && it.id) || `item-${idx}-${itIdx}`,
+            textRu: textRu || 'Testo audio',
+            label: (typeof it === 'object' && it.label) || textRu || 'Ascolto',
+            ipa,
+            italianPhonetic,
+            audioTextToSpeak: audioTextToSpeak || textRu || '',
+            explanationIt,
           };
         }),
       };
     }),
     vocabulary: rawVocab.map((v: any, vIdx: number) => {
-      if (!v || typeof v !== 'object') {
-        const strVal = String(v || '');
-        return {
-          wordRu: strVal,
-          ipa: '',
-          translationIt: '',
-          audioTextToSpeak: strVal,
-          notesIt: '',
-        };
-      }
+      const wRu = extractRussianText(v);
       return {
-        ...v,
-        wordRu: v.wordRu || v.word || '',
-        ipa: v.ipa || '',
-        translationIt: v.translationIt || v.translation || '',
-        audioTextToSpeak: v.audioTextToSpeak || v.wordRu || v.word || '',
-        notesIt: v.notesIt || '',
+        ...(typeof v === 'object' ? v : {}),
+        wordRu: wRu || String(v || ''),
+        ipa: (typeof v === 'object' && v.ipa) || '',
+        translationIt: extractItalianText(v),
+        audioTextToSpeak: (typeof v === 'object' && v.audioTextToSpeak) || wRu || '',
+        notesIt: (typeof v === 'object' && v.notesIt) || '',
       };
     }),
   };
@@ -178,6 +224,7 @@ function ExerciseCardsList({
   ex4,
   onGoToPdf,
   onOpenScanner,
+  onResearch,
 }: {
   exercises: any[];
   isDefaultLesson1: boolean;
@@ -188,6 +235,7 @@ function ExerciseCardsList({
   ex4: any;
   onGoToPdf?: () => void;
   onOpenScanner?: () => void;
+  onResearch?: () => void;
 }) {
   // 1. If this is the preloaded Lesson 1 (introductory vowels page 10-11)
   if (isDefaultLesson1) {
@@ -281,23 +329,32 @@ function ExerciseCardsList({
         <h4 className="font-bold text-slate-900 text-lg mb-1">
           Nessun esercizio audio trovato automaticamente per questa pagina
         </h4>
-        <p className="text-xs text-slate-500 max-w-md mx-auto mb-6">
-          La pagina potrebbe non contenere testo russo o esercizi di pronuncia. Puoi rilanciare l'analisi con l'IA oppure incollare manualmente il testo russo da riprodurre con audio.
+        <p className="text-xs text-slate-500 max-w-md mx-auto mb-6 leading-relaxed">
+          La pagina potrebbe non essere ancora stata elaborata oppure la ricerca non ha individuato esercizi. Puoi avviare una nuova ricerca con l'IA o inserire il testo manualmente.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
+          {onResearch && (
+            <button
+              onClick={onResearch}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Ricerca Esercizi con l'IA</span>
+            </button>
+          )}
           {onGoToPdf && (
             <button
               onClick={onGoToPdf}
-              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
             >
               <FileText className="w-4 h-4" />
-              <span>Torna al PDF</span>
+              <span>Apri nel Lettore PDF</span>
             </button>
           )}
           {onOpenScanner && (
             <button
               onClick={onOpenScanner}
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
+              className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm"
             >
               <Upload className="w-4 h-4" />
               <span>Inserisci Testo o Foto</span>
@@ -343,51 +400,54 @@ function ExerciseCardsList({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {audioList.map((item: any, itIdx: number) => (
-                  <div
-                    key={item.id || `item-${exIdx}-${itIdx}`}
-                    className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-white transition-all flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="text-xl font-black text-slate-900 font-sans tracking-wide leading-snug">
-                        {item.textRu}
+                {audioList.map((item: any, itIdx: number) => {
+                  const displayText = item.textRu || item.label || item.audioTextToSpeak || 'Frase audio';
+                  return (
+                    <div
+                      key={item.id || `item-${exIdx}-${itIdx}`}
+                      className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-white transition-all flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="text-xl font-black text-slate-900 font-sans tracking-wide leading-snug">
+                          {displayText}
+                        </div>
+                        {item.ipa && (
+                          <div className="text-xs font-mono text-slate-500 mt-1">
+                            {item.ipa}
+                          </div>
+                        )}
+                        {item.italianPhonetic && (
+                          <div className="text-[11px] text-amber-700 italic mt-0.5 font-medium">
+                            "{item.italianPhonetic}"
+                          </div>
+                        )}
+                        {item.explanationIt && (
+                          <p className="text-xs text-slate-600 mt-2.5 leading-relaxed border-t border-slate-100 pt-2">
+                            {item.explanationIt}
+                          </p>
+                        )}
                       </div>
-                      {item.ipa && (
-                        <div className="text-xs font-mono text-slate-500 mt-1">
-                          {item.ipa}
-                        </div>
-                      )}
-                      {item.italianPhonetic && (
-                        <div className="text-[11px] text-amber-700 italic mt-0.5 font-medium">
-                          "{item.italianPhonetic}"
-                        </div>
-                      )}
-                      {item.explanationIt && (
-                        <p className="text-xs text-slate-600 mt-2.5 leading-relaxed border-t border-slate-100 pt-2">
-                          {item.explanationIt}
-                        </p>
-                      )}
-                    </div>
 
-                    <div className="mt-3 pt-2.5 flex items-center gap-2 border-t border-slate-200/60">
-                      <button
-                        onClick={() => audioService.playText(item.audioTextToSpeak || item.textRu, item.id || `item-${exIdx}-${itIdx}`)}
-                        className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <Volume2 className="w-3.5 h-3.5" />
-                        <span>Ascolta</span>
-                      </button>
+                      <div className="mt-3 pt-2.5 flex items-center gap-2 border-t border-slate-200/60">
+                        <button
+                          onClick={() => audioService.playText(item.audioTextToSpeak || displayText, item.id || `item-${exIdx}-${itIdx}`)}
+                          className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                          <span>Ascolta</span>
+                        </button>
 
-                      <button
-                        onClick={() => audioService.playText(item.audioSlowTextToSpeak || item.audioTextToSpeak || item.textRu, `${item.id || itIdx}-slow`, { rate: 0.6 })}
-                        className="py-2 px-2.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                        title="Ascolto lento (0.6x)"
-                      >
-                        0.6x
-                      </button>
+                        <button
+                          onClick={() => audioService.playText(item.audioSlowTextToSpeak || item.audioTextToSpeak || displayText, `${item.id || itIdx}-slow`, { rate: 0.6 })}
+                          className="py-2 px-2.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                          title="Ascolto lento (0.6x)"
+                        >
+                          0.6x
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -676,13 +736,24 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => setActiveTab('pdf')}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Torna al lettore PDF</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setActiveTab('pdf')}
+                      className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      title="Torna al lettore PDF per ricercare o rielaborare gli esercizi con l'IA"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Rielabora / Ricerca nel PDF</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveTab('pdf')}
+                      className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Torna al lettore PDF</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Exercises Cards List (Automatic universal rendering for all 300 pages) */}
@@ -696,6 +767,7 @@ export default function App() {
                   ex4={ex4}
                   onGoToPdf={() => setActiveTab('pdf')}
                   onOpenScanner={() => setIsScannerOpen(true)}
+                  onResearch={() => setActiveTab('pdf')}
                 />
               </div>
             )}

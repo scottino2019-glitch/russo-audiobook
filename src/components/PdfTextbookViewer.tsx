@@ -17,7 +17,9 @@ import {
   Library,
   Plus,
   ChevronDown,
-  X
+  X,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { pdfService } from '../services/pdfService';
 import { dbService, StoredPdfMeta } from '../services/dbService';
@@ -53,6 +55,7 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
   const [isProcessingPage, setIsProcessingPage] = useState<boolean>(false);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBookshelfOpen, setIsBookshelfOpen] = useState<boolean>(false);
 
   const safeGeneratedPages = Array.isArray(generatedPages) ? generatedPages : [];
@@ -199,10 +202,11 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
   const handleProcessCurrentPage = async (attempt = 1) => {
     if (!pdfService.isLoaded() || !activeBook) return;
     setIsProcessingPage(true);
+    setErrorMessage(null);
     setStatusMessage(
       attempt > 1
         ? `Nuovo tentativo (${attempt}/3) per Pagina ${currentPage}...`
-        : `Elaborazione con IA di Pagina ${currentPage}...`
+        : `Ricerca ed elaborazione con IA per Pagina ${currentPage}...`
     );
 
     try {
@@ -239,25 +243,37 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
         bookTitle: activeBook.name,
         imageUrl: base64Image,
         isCustomUploaded: true,
-        exercises: rawExercises.map((ex: any, idx: number) => ({
-          ...ex,
-          id: ex?.id || `ex-${idx}`,
-          number: String(ex?.number ?? idx + 1),
-          titleRu: ex?.titleRu || '',
-          titleIt: ex?.titleIt || '',
-          descriptionIt: ex?.descriptionIt || '',
-          exerciseNotesIt: ex?.exerciseNotesIt || '',
-          audioItems: (Array.isArray(ex?.audioItems) ? ex.audioItems : Array.isArray(ex?.items) ? ex.items : []).map((it: any, itIdx: number) => ({
-            ...it,
-            id: it?.id || `item-${idx}-${itIdx}`,
-            textRu: it?.textRu || it?.text || '',
-            label: it?.label || it?.textRu || it?.text || '',
-            ipa: it?.ipa || '',
-            italianPhonetic: it?.italianPhonetic || '',
-            audioTextToSpeak: it?.audioTextToSpeak || it?.textRu || it?.text || '',
-            explanationIt: it?.explanationIt || '',
-          })),
-        })),
+        exercises: rawExercises.map((ex: any, idx: number) => {
+          const rawAudio = Array.isArray(ex?.audioItems)
+            ? ex.audioItems
+            : Array.isArray(ex?.items)
+            ? ex.items
+            : [];
+          return {
+            ...ex,
+            id: ex?.id || `ex-${idx}`,
+            number: String(ex?.number ?? idx + 1),
+            titleRu: ex?.titleRu || ex?.title || `Esercizio ${idx + 1}`,
+            titleIt: ex?.titleIt || '',
+            descriptionIt: ex?.descriptionIt || '',
+            exerciseNotesIt: ex?.exerciseNotesIt || '',
+            audioItems: rawAudio.map((it: any, itIdx: number) => {
+              const textRu = typeof it === 'string'
+                ? it
+                : it?.textRu || it?.text || it?.wordRu || it?.word || it?.label || '';
+              return {
+                ...it,
+                id: it?.id || `item-${idx}-${itIdx}`,
+                textRu: textRu || 'Testo audio',
+                label: it?.label || textRu || '',
+                ipa: it?.ipa || '',
+                italianPhonetic: it?.italianPhonetic || '',
+                audioTextToSpeak: it?.audioTextToSpeak || textRu || '',
+                explanationIt: it?.explanationIt || it?.translationIt || it?.meaning || '',
+              };
+            }),
+          };
+        }),
         vocabulary: rawVocab.map((v: any) => ({
           ...v,
           wordRu: v?.wordRu || v?.word || '',
@@ -274,8 +290,9 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
       setTimeout(() => setStatusMessage(null), 3000);
     } catch (err: any) {
       console.error(err);
-      setStatusMessage(err.message || 'Errore durante l\'elaborazione. Puoi riprovare tra qualche secondo.');
-      setTimeout(() => setStatusMessage(null), 6000);
+      const msg = err.message || 'Errore durante l\'elaborazione. Puoi riprovare la ricerca con il pulsante qui sotto.';
+      setErrorMessage(msg);
+      setStatusMessage(null);
     } finally {
       setIsProcessingPage(false);
     }
@@ -577,15 +594,27 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {currentGenerated ? (
-            <button
-              onClick={() => onSelectGeneratedPage(currentGenerated)}
-              className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-            >
-              <Volume2 className="w-3.5 h-3.5" />
-              <span>Apri Esercizi Audio di Pag. {currentPage}</span>
-            </button>
+            <>
+              <button
+                onClick={() => onSelectGeneratedPage(currentGenerated)}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>Apri Esercizi Audio di Pag. {currentPage}</span>
+              </button>
+
+              <button
+                onClick={() => handleProcessCurrentPage(1)}
+                disabled={isProcessingPage}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Rianalizza questa pagina per ricercare o aggiornare tutti gli esercizi"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-600 ${isProcessingPage ? 'animate-spin' : ''}`} />
+                <span>Rielabora / Ricerca di nuovo</span>
+              </button>
+            </>
           ) : (
             <button
               onClick={() => handleProcessCurrentPage(1)}
@@ -595,18 +624,47 @@ export const PdfTextbookViewer: React.FC<PdfTextbookViewerProps> = ({
               {isProcessingPage ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Elaborazione Pagina in corso...</span>
+                  <span>Ricerca ed elaborazione in corso...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5 text-amber-200" />
-                  <span>Crea Esercizi Audio per Questa Pagina ⚡</span>
+                  <span>Ricerca & Crea Esercizi Audio (Pag. {currentPage}) ⚡</span>
                 </>
               )}
             </button>
           )}
         </div>
       </div>
+
+      {/* Error Banner with Immediate Retry / Search Button */}
+      {errorMessage && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-red-900 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span className="font-medium">{errorMessage}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                handleProcessCurrentPage(1);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Riprova Ricerca Esercizi</span>
+            </button>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="p-1 rounded-lg text-red-500 hover:text-red-800 hover:bg-red-100 transition-colors cursor-pointer"
+              title="Chiudi avviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {statusMessage && (
         <div className="bg-amber-100 text-amber-900 text-xs px-4 py-2 text-center font-medium animate-fadeIn">
